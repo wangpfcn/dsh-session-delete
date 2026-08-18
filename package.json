@@ -1,0 +1,34 @@
+{
+  "name": "dsh-session-delete",
+  "version": "0.1.0",
+  "description": "DSH sidebar session deletion & bulk archive: adds delete-session to session row menus and archive-all/delete-all to workspace row menus",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vtxf/dsh-session-delete.git"
+  },
+  "author": "vtxf",
+  "license": "MIT"
+}
