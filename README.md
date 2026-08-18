@@ -24,8 +24,16 @@ DSH（DeepSeek Harness）工作区侧栏增强插件：补上官方缺失的**�
 ### 安装
 
 ```bash
+dsh plugin --profile web add dsh-session-delete
+```
+
+（自动加入 profile 的 `dsh.profile.bundles` 层，包内 `cordis.patch.yml` 随层生效，无需手动编辑。`web` 换成你的 profile 名。）
+
+手动兜底（不使用 `dsh plugin` 时）：
+
+```bash
 cd ~/.dsh/profiles/web
-pnpm add dsh-session-delete
+pnpm add dsh-session-delete --registry https://registry.npmjs.org
 ```
 
 然后在 `cordis.patch.yml` 添加挂载行（无需 config）：
@@ -59,7 +67,7 @@ A DSH (DeepSeek Harness) sidebar enhancement plugin: adds the missing **session 
 
 Safety: danger-styled confirmation dialog; live/opened sessions are always skipped; removal runs in a per-call sandbox (`workspace-write` scoped to the session's project directory); files are removed before any bookkeeping so a failure never leaves a half-deleted state.
 
-Install: `pnpm add dsh-session-delete` in your DSH profile, add the `- insert: dsh-session-delete` row to `cordis.patch.yml`, restart DSH. UI language follows the GUI locale (zh/en).
+Install: `dsh plugin --profile <name> add dsh-session-delete` (or `pnpm add dsh-session-delete` plus a manual `- insert: dsh-session-delete` row in `cordis.patch.yml`), restart DSH. UI language follows the GUI locale (zh/en).
 
 ## License
 
