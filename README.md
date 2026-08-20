@@ -2,6 +2,12 @@
 
 [中文](#中文) | [English](#english)
 
+## 预览
+
+![删除会话](docs/images/delete-session.png)
+
+![删除全部会话](docs/images/delete-all-sessions.png)
+
 ## 中文
 
 DSH（DeepSeek Harness）工作区侧栏增强插件：补上官方缺失的**会话删除**能力，并增加目录级批量操作。
