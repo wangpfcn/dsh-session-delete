@@ -1,5 +1,8 @@
 # dsh-session-delete
 
+> 本仓库是 [@wenhao4126](https://github.com/wenhao4126) 的公开 fork。
+> 上游仓库：[vtxf/dsh-session-delete](https://github.com/vtxf/dsh-session-delete)
+
 [中文](#中文) | [English](#english)
 
 ## 预览
