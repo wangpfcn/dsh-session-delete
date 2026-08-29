@@ -40,6 +40,8 @@ window.__ModuleLoader__.load({
 				".sesdel-btn-primary:disabled{opacity:.55;cursor:default;}",
 				".sesdel-settings{padding:4px 0;}",
 				".sesdel-settings-desc{font-size:13px;color:var(--dsw-alias-label-secondary,#555);margin:4px 0 12px;}",
+				".sesdel-settings-all{display:inline-block;margin:0 0 12px;padding:6px 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l,rgba(9,9,11,.2));background:transparent;color:inherit;cursor:pointer;}",
+				".sesdel-settings-all:disabled{opacity:.5;cursor:default;}",
 				".sesdel-settings-table{border-collapse:collapse;width:100%;font-size:13px;}",
 				".sesdel-settings-table th,.sesdel-settings-table td{border-bottom:1px solid var(--dsw-alias-border-l,rgba(0,0,0,.08));padding:8px 10px;text-align:left;vertical-align:middle;}",
 				".sesdel-settings-table button{margin-right:6px;padding:4px 10px;border-radius:6px;border:1px solid var(--dsw-alias-border-l,rgba(9,9,11,.2));background:transparent;color:inherit;cursor:pointer;}",
@@ -291,6 +293,12 @@ window.__ModuleLoader__.load({
 				menuEl.setAttribute("data-sesdel", "1");
 				var dangerTemplate = isWorkspace ? wraps[wraps.length - 1] : null;
 				if (isSession) {
+					/* 官方菜单自带的“归档会话”与本插件“归档会话+工作区备份”重复，
+					   这里隐藏官方项，只保留会备份工作区的插件项。 */
+					var archiveIndex = ids.indexOf("archive");
+					if (archiveIndex >= 0 && wraps[archiveIndex] && wraps[archiveIndex].parentNode) {
+						wraps[archiveIndex].parentNode.removeChild(wraps[archiveIndex]);
+					}
 					addItem(viewport, wraps[0], null, L.archiveSession, ICONS.archive, false, function () {
 						closeOpenMenu();
 						confirmArchiveSession(row);
@@ -298,10 +306,6 @@ window.__ModuleLoader__.load({
 					addItem(viewport, wraps[0], null, L.deleteSession, ICONS.trash, true, function () {
 						closeOpenMenu();
 						confirmDeleteSession(row);
-					});
-					addItem(viewport, wraps[0], null, L.restoreAllArchived, ICONS.restore, false, function () {
-						closeOpenMenu();
-						confirmRestoreAll();
 					});
 				} else {
 					addItem(viewport, wraps[0], dangerTemplate, L.archiveAll, ICONS.archive, false, function () {
@@ -591,6 +595,20 @@ window.__ModuleLoader__.load({
 					load();
 				}
 
+				async function restoreAllSessions() {
+					if (rows !== null && rows.length > 0 && !confirm(L.restoreAllBody(rows.length))) return;
+					setBusy(true);
+					setMsg(null);
+					var r = await callApi("/dsh-session-delete/restore-all", {});
+					if (r === null || r === undefined || !r.ok) {
+						setMsg(errorText(r));
+					} else {
+						setMsg(L.restoreResult(r.restored || 0, (r.failed || []).length));
+					}
+					setBusy(false);
+					load();
+				}
+
 				var th = function (text) {
 					return react.createElement('th', null, text);
 				};
@@ -598,6 +616,12 @@ window.__ModuleLoader__.load({
 				return react.createElement('div', { className: 'sesdel-settings' },
 					react.createElement('h3', null, L.settingsTitle),
 					react.createElement('p', { className: 'sesdel-settings-desc' }, L.settingsDesc),
+					react.createElement('button', {
+						type: 'button',
+						className: 'sesdel-settings-all',
+						disabled: busy || rows === null || rows.length === 0,
+						onClick: restoreAllSessions
+					}, L.restoreAllArchived),
 					msg ? react.createElement('p', { className: 'sesdel-msg' }, msg) : null,
 					rows === null
 						? react.createElement('p', null, L.loading)
