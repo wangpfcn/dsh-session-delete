@@ -59,7 +59,7 @@ window.__ModuleLoader__.load({
 
 			var DICT = {
 				zh: {
-					deleteSession: "删除会话", archiveAll: "归档全部会话", deleteAll: "删除全部会话",
+					deleteSession: "删除会话", archiveSession: "归档会话", archiveAll: "归档全部会话", deleteAll: "删除全部会话",
 					restoreArchived: "恢复归档会话", restoreAllArchived: "恢复全部已归档会话",
 					delTitle: "删除会话",
 					delBody: function (t) { return "将永久删除会话“" + t + "”的全部本地记录（含日志文件），不可恢复。"; },
@@ -94,11 +94,13 @@ window.__ModuleLoader__.load({
 					errNetwork: "请求失败（服务不可达）。",
 					errUnknown: "操作失败。",
 					archResult: function (n, f) { return "已归档 " + n + " 个会话。" + (f > 0 ? "失败 " + f + " 个。" : ""); },
+					archiveOneBody: "将归档该会话，并备份其工作区信息。恢复时可自动恢复到原工作区。",
+					archiveOneResult: "已归档会话，并备份工作区信息。",
 					restoreResult: function (n, f) { return "已恢复 " + n + " 个会话。" + (f > 0 ? "失败 " + f + " 个。" : ""); },
 					delAllResult: function (d, lv, f) { return "已删除 " + d + " 个" + (lv > 0 ? "，跳过运行中 " + lv + " 个" : "") + (f > 0 ? "，失败 " + f + " 个" : "") + "。"; }
 				},
 				en: {
-					deleteSession: "Delete Session", archiveAll: "Archive All Sessions", deleteAll: "Delete All Sessions",
+					deleteSession: "Delete Session", archiveSession: "Archive Session", archiveAll: "Archive All Sessions", deleteAll: "Delete All Sessions",
 					restoreArchived: "Restore Archived Sessions", restoreAllArchived: "Restore All Archived Sessions",
 					delTitle: "Delete session",
 					delBody: function (t) { return "Permanently delete all local records (including the log file) of session “" + t + "”. This cannot be undone."; },
@@ -133,6 +135,8 @@ window.__ModuleLoader__.load({
 					errNetwork: "Request failed (service unreachable).",
 					errUnknown: "Operation failed.",
 					archResult: function (n, f) { return "Archived " + n + " session(s)." + (f > 0 ? " Failed: " + f + "." : ""); },
+					archiveOneBody: "Archive this session and back up its workspace information. It can be restored to the original workspace later.",
+					archiveOneResult: "Session archived and workspace backed up.",
 					restoreResult: function (n, f) { return "Restored " + n + " session(s)." + (f > 0 ? " Failed: " + f + "." : ""); },
 					delAllResult: function (d, lv, f) { return "Deleted " + d + "." + (lv > 0 ? " Skipped running: " + lv + "." : "") + (f > 0 ? " Failed: " + f + "." : ""); }
 				}
@@ -287,6 +291,10 @@ window.__ModuleLoader__.load({
 				menuEl.setAttribute("data-sesdel", "1");
 				var dangerTemplate = isWorkspace ? wraps[wraps.length - 1] : null;
 				if (isSession) {
+					addItem(viewport, wraps[0], null, L.archiveSession, ICONS.archive, false, function () {
+						closeOpenMenu();
+						confirmArchiveSession(row);
+					});
 					addItem(viewport, wraps[0], null, L.deleteSession, ICONS.trash, true, function () {
 						closeOpenMenu();
 						confirmDeleteSession(row);
@@ -438,6 +446,20 @@ window.__ModuleLoader__.load({
 						var res = await callApi("/dsh-session-delete/delete", { sessionId: row.id });
 						if (res !== null && res !== undefined && res.ok) return null;
 						return errorText(res);
+					}
+				});
+			}
+
+			function confirmArchiveSession(row) {
+				openConfirm({
+					title: L.archiveSession,
+					body: L.archiveOneBody,
+					confirm: L.archiveSession,
+					danger: false,
+					run: async function () {
+						var res = await callApi("/dsh-session-delete/archive", { sessionId: row.id });
+						if (res === null || res === undefined || !res.ok) return errorText(res);
+						return { done: L.archiveOneResult };
 					}
 				});
 			}
