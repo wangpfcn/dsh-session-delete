@@ -31,8 +31,15 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vtxf/dsh-session-delete.git"
+    "url": "git+https://github.com/wenhao4126/dsh-session-delete.git"
   },
   "author": "vtxf",
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/wenhao4126/dsh-session-delete",
+  "bugs": {
+    "url": "https://github.com/wenhao4126/dsh-session-delete/issues"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
 }
