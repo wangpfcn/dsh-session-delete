@@ -18,6 +18,7 @@ window.__ModuleLoader__.load({
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
+		var react = require('react');
 
 		function apply(ctx) {
 			if (typeof document === "undefined" || document.body === null) return;
@@ -36,7 +37,14 @@ window.__ModuleLoader__.load({
 				".sesdel-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05));}",
 				".sesdel-btn-primary{background:var(--dsw-alias-state-business-primary,#2f6fed);border-color:transparent;color:var(--dsw-alias-label-primary-inverted,#fff);}",
 				".sesdel-btn-primary.sesdel-danger{background:var(--dsw-alias-state-error-primary,#d92d20);}",
-				".sesdel-btn-primary:disabled{opacity:.55;cursor:default;}"
+				".sesdel-btn-primary:disabled{opacity:.55;cursor:default;}",
+				".sesdel-settings{padding:4px 0;}",
+				".sesdel-settings-desc{font-size:13px;color:var(--dsw-alias-label-secondary,#555);margin:4px 0 12px;}",
+				".sesdel-settings-table{border-collapse:collapse;width:100%;font-size:13px;}",
+				".sesdel-settings-table th,.sesdel-settings-table td{border-bottom:1px solid var(--dsw-alias-border-l,rgba(0,0,0,.08));padding:8px 10px;text-align:left;vertical-align:middle;}",
+				".sesdel-settings-table button{margin-right:6px;padding:4px 10px;border-radius:6px;border:1px solid var(--dsw-alias-border-l,rgba(9,9,11,.2));background:transparent;color:inherit;cursor:pointer;}",
+				".sesdel-settings-table button:disabled{opacity:.5;cursor:default;}",
+				".sesdel-msg{font-size:13px;color:var(--dsw-alias-state-error-primary,#d92d20);}"
 			].join("\n");
 			document.head.appendChild(styleTag);
 
@@ -63,6 +71,18 @@ window.__ModuleLoader__.load({
 					restoreBody0: function (l) { return "将恢复工作区“" + l + "”下全部已归档会话到原工作区。如果原工作区已删除，将按会话项目目录自动重建。"; },
 					restoreAllTitle: "恢复全部已归档会话",
 					restoreAllBody: function (n) { return "将恢复全部 " + n + " 个已归档会话到各自原工作区。如果原工作区已删除，将自动按会话项目目录重建工作区。"; },
+					settingsTitle: "会话管理",
+					settingsDesc: "查看、恢复或物理删除已归档的会话。归档时会同步备份工作区信息，恢复时自动恢复原工作区。",
+					emptyArchived: "暂无已归档的对话。",
+					colName: "会话",
+					colWorkspace: "工作区",
+					colArchivedAt: "归档时间",
+					colActions: "操作",
+					restoreOne: "恢复",
+					deleteOne: "删除",
+					loading: "加载中…",
+					restoredOne: "已恢复会话。",
+					deletedOne: "已删除会话。",
 					delAllTitle: "删除全部会话",
 					delAllBody: function (l, n) { return "将永久删除工作区“" + l + "”下全部 " + n + " 个会话（含已归档）的本地记录，不可恢复。正在运行的会话将被跳过。"; },
 					delAllBody0: function (l) { return "将永久删除工作区“" + l + "”下全部会话（含已归档）的本地记录，不可恢复。正在运行的会话将被跳过。"; },
@@ -90,6 +110,18 @@ window.__ModuleLoader__.load({
 					restoreBody0: function (l) { return "Restore all archived sessions in workspace “" + l + "” to their original workspace. If the original workspace was deleted, it will be recreated from each session's project directory."; },
 					restoreAllTitle: "Restore All Archived Sessions",
 					restoreAllBody: function (n) { return "Restore all " + n + " archived sessions to their original workspaces. Deleted workspace registrations will be recreated from each session's project directory."; },
+					settingsTitle: "Session Management",
+					settingsDesc: "View, restore, or permanently delete archived sessions. Workspace information is backed up when archiving and restored automatically on restore.",
+					emptyArchived: "No archived conversations yet.",
+					colName: "Session",
+					colWorkspace: "Workspace",
+					colArchivedAt: "Archived At",
+					colActions: "Actions",
+					restoreOne: "Restore",
+					deleteOne: "Delete",
+					loading: "Loading…",
+					restoredOne: "Session restored.",
+					deletedOne: "Session deleted.",
 					delAllTitle: "Delete all sessions",
 					delAllBody: function (l, n) { return "Permanently delete all " + n + " sessions (archived included) in workspace “" + l + "”. Running sessions are skipped. This cannot be undone."; },
 					delAllBody0: function (l) { return "Permanently delete all sessions (archived included) in workspace “" + l + "”. Running sessions are skipped. This cannot be undone."; },
@@ -480,6 +512,103 @@ window.__ModuleLoader__.load({
 				});
 			}
 
+			/* ---- 设置页：已归档会话管理 ---- */
+			function SessionManagerSettingsPage() {
+				var rowsState = react.useState(null);
+				var rows = rowsState[0];
+				var setRows = rowsState[1];
+				var busyState = react.useState(false);
+				var busy = busyState[0];
+				var setBusy = busyState[1];
+				var msgState = react.useState(null);
+				var msg = msgState[0];
+				var setMsg = msgState[1];
+
+				function load() {
+					setBusy(true);
+					setMsg(null);
+					callApi("/dsh-session-delete/list-archived", {})
+						.then(function (r) {
+							setRows(r !== null && r !== undefined && Array.isArray(r.sessions) ? r.sessions : []);
+						})
+						.catch(function () {
+							setRows([]);
+							setMsg(L.errNetwork);
+						})
+						.finally(function () {
+							setBusy(false);
+						});
+				}
+
+				react.useEffect(function () { load(); }, []);
+
+				async function restoreSession(id) {
+					setBusy(true);
+					setMsg(null);
+					var r = await callApi("/dsh-session-delete/restore", { sessionId: id });
+					if (r === null || r === undefined || !r.ok) {
+						setMsg(errorText(r));
+					} else {
+						setMsg(L.restoredOne);
+					}
+					setBusy(false);
+					load();
+				}
+
+				async function deleteSession(id) {
+					if (!confirm(L.delBody(id))) return;
+					setBusy(true);
+					setMsg(null);
+					var r = await callApi("/dsh-session-delete/delete", { sessionId: id });
+					if (r === null || r === undefined || !r.ok) {
+						setMsg(errorText(r));
+					} else {
+						setMsg(L.deletedOne);
+					}
+					setBusy(false);
+					load();
+				}
+
+				var th = function (text) {
+					return react.createElement('th', null, text);
+				};
+
+				return react.createElement('div', { className: 'sesdel-settings' },
+					react.createElement('h3', null, L.settingsTitle),
+					react.createElement('p', { className: 'sesdel-settings-desc' }, L.settingsDesc),
+					msg ? react.createElement('p', { className: 'sesdel-msg' }, msg) : null,
+					rows === null
+						? react.createElement('p', null, L.loading)
+						: rows.length === 0
+							? react.createElement('p', null, L.emptyArchived)
+							: react.createElement('table', { className: 'sesdel-settings-table' },
+								react.createElement('thead', null,
+									react.createElement('tr', null,
+										th(L.colName), th(L.colWorkspace), th(L.colArchivedAt), th(L.colActions))),
+								react.createElement('tbody', null, rows.map(function (row) {
+									return react.createElement('tr', { key: row.id },
+										react.createElement('td', null, row.title || row.id),
+										react.createElement('td', null, row.workspaceTitle || row.workspacePath || row.cwd || ''),
+										react.createElement('td', null, row.archivedAt ? new Date(row.archivedAt).toLocaleString() : ''),
+										react.createElement('td', null,
+											react.createElement('button', {
+												type: 'button',
+												disabled: busy,
+												onClick: function () { restoreSession(row.id); }
+											}, L.restoreOne),
+											' ',
+											react.createElement('button', {
+												type: 'button',
+												disabled: busy,
+												onClick: function () { deleteSession(row.id); }
+											}, L.deleteOne)
+										)
+									);
+								}))
+							)
+				);
+			}
+
 			var onClick = function (e) {
 				try {
 					var t = e.target;
@@ -521,6 +650,23 @@ window.__ModuleLoader__.load({
 			observer.observe(document.body, { childList: true, subtree: true });
 
 			console.log("[dsh-session-delete] client ready, lang=" + lang);
+
+			var slots = ctx.get("slots");
+			if (slots !== undefined && slots !== null) {
+				ctx.effect(function () {
+					return slots.inject("settings.section", function () {
+						return slots.register(
+							{
+								name: "settings.section",
+								id: "dsh-session-delete",
+								order: 42,
+								label: function () { return L.settingsTitle; }
+							},
+							SessionManagerSettingsPage
+						);
+					});
+				}, "dsh-session-delete settings section");
+			}
 
 			ctx.effect(function () {
 				return function () {

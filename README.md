@@ -24,6 +24,7 @@ DSH（DeepSeek Harness）工作区侧栏增强插件：补上官方缺失的**�
 | 目录行 `…` 菜单 | **归档全部会话** | 一键归档该工作区下所有未归档会话（记录保留，仅隐藏） |
 | 目录行 `…` 菜单 | **恢复归档会话** | 恢复该工作区下已归档会话到原工作区 |
 | 目录行 `…` 菜单 | **删除全部会话** | 批量删除该工作区全部会话（含已归档） |
+| 设置页 | **会话管理** | 查看已归档会话、恢复会话、物理删除会话；归档时会同步备份工作区信息，恢复时自动恢复原工作区 |
 
 ### 安全设计
 
@@ -59,8 +60,8 @@ pnpm add dsh-session-delete --registry https://registry.npmjs.org
 
 ### 工作原理
 
-- **Host 半**（`index.js`）：注册 `POST /dsh-session-delete/{delete,delete-all,archive-all,restore,restore-all}` 同源路由；删除经 `ctx.shell` 在按调用沙箱策略下执行（POSIX `rm` / Windows `Remove-Item` 自动分派，路径单引号转义防注入）；恢复会从归档集合移除会话，并按会话头 cwd 放回原工作区或重建工作区
-- **Client 半**（`client.js`，`dsh.client` web bundle）：点击捕获 + React fiber 读取行数据；MutationObserver 在菜单挂载后克隆现有菜单项 DOM 注入新命令（样式/主题自动一致），操作经同源 `fetch` 调 Host 路由
+- **Host 半**（`index.js`）：注册 `POST /dsh-session-delete/{archive,archive-all,delete,delete-all,restore,restore-all,list-archived}` 同源路由；删除经 `ctx.shell` 在按调用沙箱策略下执行（POSIX `rm` / Windows `Remove-Item` 自动分派，路径单引号转义防注入）；归档时会备份工作区信息到 `~/.dsh/dsh-session-delete-workspace-backups.json`；恢复会优先使用备份的工作区信息，并按需重建工作区
+- **Client 半**（`client.js`，`dsh.client` web bundle）：点击捕获 + React fiber 读取行数据；MutationObserver 在菜单挂载后克隆现有菜单项 DOM 注入新命令（样式/主题自动一致）；同时注册设置页“会话管理”，操作经同源 `fetch` 调 Host 路由
 
 > 注：浏览器半通过 DOM 增强注入菜单（官方未开放该菜单的扩展 Slot）。DSH 大版本升级若调整侧栏结构，插件可能需要跟进——菜单未注入时功能静默缺失，不会有其他影响。
 
@@ -76,6 +77,7 @@ A DSH (DeepSeek Harness) sidebar enhancement plugin: adds the missing **session 
 - Session row menu → **Delete Session**: permanently removes the session's local records (log directory included)
 - Session row menu → **Restore All Archived Sessions**: restores every archived session to its original workspace; if a workspace registration was deleted, it is recreated from the session's project directory
 - Workspace row menu → **Archive All Sessions** / **Restore Archived Sessions** / **Delete All Sessions**
+- Settings page → **Session Management**: view archived sessions, restore them to their original workspace, or permanently delete them; archiving backs up workspace metadata so restore can recreate deleted workspaces
 
 Safety: danger-styled confirmation dialog; live/opened sessions are always skipped; removal runs in a per-call sandbox (`workspace-write` scoped to the session's project directory); files are removed before any bookkeeping so a failure never leaves a half-deleted state.
 

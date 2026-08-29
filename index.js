@@ -1,24 +1,25 @@
 /**
- * dsh-session-delete — 工作区侧栏「删除会话 / 归档全部会话 / 删除全部会话 / 恢复归档会话」（Host 半）
+ * dsh-session-delete — 工作区侧栏「会话管理：归档 / 恢复 / 删除 / 批量操作」（Host 半）
  *
  * 能力：
- *   - 在 ctx.webServer 注册 POST /dsh-session-delete/{delete,delete-all,archive-all,restore,restore-all}
- *     路由，浏览器同源 fetch 调用（客户端半见 client.js）；
- *   - 删除 = 受限沙箱内移除会话日志目录（workspace-write，root 限定该会话所属
- *     项目目录），成功后才归档隐藏 + 从工作区账目 detach（先文件后簿记，
- *     失败时行保持可见、错误直达对话框）；
- *   - 恢复 = 从归档集合移除会话，并优先放回原工作区；如果原工作区注册已删除，
- *     则按会话头里的 cwd 自动重建工作区，再把会话挂回该工作区。
+ *   - 在 ctx.webServer 注册：
+ *       POST /dsh-session-delete/archive
+ *       POST /dsh-session-delete/archive-all
+ *       POST /dsh-session-delete/delete
+ *       POST /dsh-session-delete/delete-all
+ *       POST /dsh-session-delete/restore
+ *       POST /dsh-session-delete/restore-all
+ *       POST /dsh-session-delete/list-archived
+ *   - 归档时会额外保存一份“工作区备份”：工作区 id、路径、标题、归档时间；
+ *   - 恢复时会优先使用备份里的工作区信息；若工作区注册已删除，则按路径/标题自动重建；
+ *   - 删除 = 受限沙箱内移除会话日志目录（workspace-write），成功后才归档隐藏 + 从工作区账目 detach；
  *   - 活跃（本进程内 live）会话拒绝删除，防止误删运行中/已打开会话。
- *
- * 挂载（profile 的 cordis.patch.yml）：
- *   - insert:
- *       - id: dsh-session-delete
- *         name: dsh-session-delete
  *
  * 依赖服务（inject）：webServer、shell、sessionPersistence、workspaceRegistry、sessions。
  */
-import { realpathSync } from 'node:fs'
+import { realpathSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync, dirname } from 'node:fs'
+import { basename, join } from 'node:path'
+import { homedir } from 'node:os'
 
 const MODULE = '[dsh-session-delete]';
 
@@ -37,7 +38,7 @@ function textOf(v) {
   }
 }
 
-function dirname(p) {
+function dirOf(p) {
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
   return i <= 0 ? '' : p.slice(0, i);
 }
@@ -80,7 +81,7 @@ function sendJson(res, status, value) {
   res.end(body);
 }
 
-/** 尝试解析为真实路径；目录已不存在时退回原值，交给 registry.create 自行判定。 */
+/** 尝试解析为真实路径；目录已不存在时退回原值。 */
 function canonicalPath(p) {
   try {
     return realpathSync(p);
@@ -88,6 +89,87 @@ function canonicalPath(p) {
     return p;
   }
 }
+
+/* ---------------- 工作区备份存储 ---------------- */
+
+function dshHome() {
+  return process.env.DSH_HOME || join(homedir(), '.dsh');
+}
+
+function backupsFile() {
+  return join(dshHome(), 'dsh-session-delete-workspace-backups.json');
+}
+
+function loadBackups() {
+  try {
+    const file = backupsFile();
+    if (!existsSync(file)) return {};
+    const raw = JSON.parse(readFileSync(file, 'utf8'));
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch (e) {
+    log('load backups failed', e);
+    return {};
+  }
+}
+
+function saveBackups(backups) {
+  try {
+    const file = backupsFile();
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(backups, null, 2), 'utf8');
+  } catch (e) {
+    log('save backups failed', e);
+  }
+}
+
+function backupFor(id) {
+  return loadBackups()[String(id)] ?? null;
+}
+
+function removeBackup(id) {
+  const backups = loadBackups();
+  if (backups[String(id)] === undefined) return;
+  delete backups[String(id)];
+  saveBackups(backups);
+}
+
+/* ---------------- 会话/工作区查找 ---------------- */
+
+async function findHeader(deps, id) {
+  try {
+    const headers = await deps.persistence.list();
+    return Array.isArray(headers) ? headers.find((h) => h && h.id === id) : undefined;
+  } catch (e) {
+    log('list headers failed', e);
+    return undefined;
+  }
+}
+
+function findWorkspaceForSession(reg, id) {
+  try {
+    for (const w of reg.list()) {
+      if (w.sessionIds.includes(id)) return w;
+    }
+  } catch {}
+  return undefined;
+}
+
+function backupWorkspace(deps, id, header) {
+  const reg = deps.registry;
+  const ws = findWorkspaceForSession(reg, id);
+  const backups = loadBackups();
+  const cwd = header && typeof header.cwd === 'string' ? header.cwd : undefined;
+  const path = ws?.path ?? (cwd || '');
+  backups[String(id)] = {
+    workspaceId: ws?.id ?? null,
+    path,
+    title: ws?.title ?? (path ? basename(path) : ''),
+    archivedAt: new Date().toISOString(),
+  };
+  saveBackups(backups);
+}
+
+/* ---------------- 删除 ---------------- */
 
 /**
  * 删除一个会话：live 拒绝 → 定位日志 → 沙箱 rm 目录 → 归档 + detach 簿记。
@@ -98,14 +180,7 @@ async function deleteOne(deps, id, report) {
     report.live.push(id);
     return;
   }
-  let header;
-  try {
-    const headers = await deps.persistence.list();
-    header = Array.isArray(headers) ? headers.find((h) => h && h.id === id) : undefined;
-  } catch (e) {
-    report.failed.push({ id, code: 'list-failed', detail: textOf(e && e.message) });
-    return;
-  }
+  const header = await findHeader(deps, id);
   if (header === undefined) {
     report.missing.push(id);
     return;
@@ -120,8 +195,8 @@ async function deleteOne(deps, id, report) {
     report.failed.push({ id, code: 'no-location' });
     return;
   }
-  const dir = dirname(loc.path);
-  const parent = dirname(dir);
+  const dir = dirOf(loc.path);
+  const parent = dirOf(dir);
   if (dir === '' || parent === '') {
     report.failed.push({ id, code: 'bad-path' });
     return;
@@ -163,6 +238,30 @@ async function deleteOne(deps, id, report) {
   report.deleted.push(id);
 }
 
+/* ---------------- 归档 ---------------- */
+
+async function archiveOne(deps, id, report) {
+  const archived = new Set([...deps.registry.archivedSessionIds].map(String));
+  if (archived.has(String(id))) {
+    report.alreadyArchived.push(id);
+    return;
+  }
+  const header = await findHeader(deps, id);
+  if (header === undefined) {
+    report.missing.push(id);
+    return;
+  }
+  try {
+    backupWorkspace(deps, id, header);
+    await deps.registry.archiveSession(id);
+    report.archived.push(id);
+  } catch (e) {
+    report.failed.push({ id, code: 'archive-failed', detail: textOf(e && e.message) });
+  }
+}
+
+/* ---------------- 恢复 ---------------- */
+
 /** 从工作区注册表全局归档集合移除一个会话（官方无公开 unarchive API，直接写 domain state）。 */
 async function unarchive(reg, id) {
   const state = reg.state;
@@ -183,10 +282,9 @@ async function unarchive(reg, id) {
 
 /**
  * 恢复一个已归档会话：
- *   - 优先放回原工作区（会话头 cwd 与现存 workspace 路径匹配；
- *     DSH 归档不会删除 sessionIds 席位，所以原工作区存在时可以直接恢复位置）；
- *   - 原工作区注册已删除时，按 cwd 自动 create 工作区再 attach；
- *   - 最后从全局归档集合移除。
+ *   - 优先放回原工作区（会话头 cwd 与现存 workspace 路径匹配，或使用归档时备份的工作区信息）；
+ *   - 原工作区注册已删除时，按备份路径/标题自动重建，再回退到 cwd；
+ *   - 最后从全局归档集合移除，并清理工作区备份。
  */
 async function restoreOne(deps, id, report) {
   const reg = deps.registry;
@@ -196,31 +294,30 @@ async function restoreOne(deps, id, report) {
     return;
   }
 
-  let header;
-  try {
-    const headers = await deps.persistence.list();
-    header = Array.isArray(headers) ? headers.find((h) => h && h.id === id) : undefined;
-  } catch (e) {
-    report.failed.push({ id, code: 'list-failed', detail: textOf(e && e.message) });
-    return;
-  }
+  const header = await findHeader(deps, id);
   if (header === undefined) {
     report.missing.push(id);
     return;
   }
 
   const cwd = typeof header.cwd === 'string' && header.cwd !== '' ? header.cwd : undefined;
-  if (!cwd) {
-    report.failed.push({ id, code: 'no-cwd', detail: 'session header carries no cwd; cannot recreate its workspace' });
+  if (!cwd && !backupFor(id)?.path) {
+    report.failed.push({ id, code: 'no-cwd', detail: 'session header carries no cwd and no workspace backup exists' });
     return;
   }
 
-  const resolved = canonicalPath(cwd);
-  let workspace = reg.list().find((w) => w.path === resolved || w.path === cwd);
+  const backup = backupFor(id);
+  let targetPath = cwd || backup?.path || '';
+  if (backup?.path && existsSync(backup.path) && statSync(backup.path).isDirectory()) {
+    targetPath = backup.path;
+  }
+
+  const resolved = canonicalPath(targetPath);
+  let workspace = reg.list().find((w) => w.path === resolved || w.path === targetPath);
   let created = false;
   if (workspace === undefined) {
     try {
-      workspace = await reg.create(cwd);
+      workspace = await reg.create(targetPath, backup?.title || undefined);
       created = true;
     } catch (e) {
       report.failed.push({ id, code: 'workspace-create-failed', detail: textOf(e && e.message) });
@@ -242,14 +339,58 @@ async function restoreOne(deps, id, report) {
     return;
   }
 
+  removeBackup(id);
   report.restored.push({ id, workspaceId: workspace.id, workspacePath: workspace.path, created });
 }
 
-/** 从一批 id 中逐个恢复；用于单会话和工作区/全局批量恢复。 */
 async function restoreMany(deps, ids, report) {
   for (const id of ids) {
     await restoreOne(deps, id, report);
   }
+}
+
+/* ---------------- 已归档列表 ---------------- */
+
+async function listArchived(deps) {
+  const reg = deps.registry;
+  const ids = [...reg.archivedSessionIds].map(String);
+  const headers = await deps.persistence.list();
+  const byId = new Map();
+  for (const h of Array.isArray(headers) ? headers : []) byId.set(String(h.id), h);
+  const backups = loadBackups();
+
+  let titles = new Map();
+  try {
+    const sessionQuery = deps.sessionQuery;
+    if (sessionQuery && ids.length > 0 && typeof sessionQuery.readTitleSnapshots === 'function') {
+      const obs = await sessionQuery.readTitleSnapshots(ids);
+      for (const o of Array.isArray(obs) ? obs : []) {
+        if (o.status === 'fulfilled' && o.value?.title) {
+          titles.set(String(o.sessionId), typeof o.value.title.title === 'string' ? o.value.title.title : undefined);
+        }
+      }
+    }
+  } catch (e) {
+    log('title lookup failed', e);
+  }
+
+  return {
+    sessions: ids.map((id) => {
+      const h = byId.get(id);
+      const backup = backups[id] ?? null;
+      const cwd = h?.cwd ?? backup?.path ?? '';
+      return {
+        id,
+        title: titles.get(id) || '',
+        cwd,
+        workspaceId: backup?.workspaceId ?? null,
+        workspacePath: backup?.path ?? '',
+        workspaceTitle: backup?.title ?? '',
+        archivedAt: backup?.archivedAt ?? '',
+        hasBackup: !!backup,
+      };
+    }),
+  };
 }
 
 export default {
@@ -261,6 +402,7 @@ export default {
       persistence: ctx.sessionPersistence,
       registry: ctx.workspaceRegistry,
       sessions: ctx.sessions,
+      sessionQuery: ctx.get('sessionQuery'),
     };
 
     const routes = [
@@ -308,6 +450,25 @@ export default {
         },
       },
       {
+        path: '/dsh-session-delete/archive',
+        handler: async (req, res) => {
+          const body = await readJsonBody(req);
+          if (body === null || typeof body.sessionId !== 'string' || body.sessionId === '') {
+            sendJson(res, 400, { ok: false, code: 'bad-args' });
+            return;
+          }
+          const report = { archived: [], alreadyArchived: [], missing: [], failed: [] };
+          await archiveOne(deps, body.sessionId, report);
+          if (report.archived.length > 0) sendJson(res, 200, { ok: true });
+          else if (report.alreadyArchived.length > 0) sendJson(res, 200, { ok: false, code: 'already-archived' });
+          else if (report.missing.length > 0) sendJson(res, 404, { ok: false, code: 'missing' });
+          else {
+            const f = report.failed[0];
+            sendJson(res, 500, { ok: false, code: f === undefined ? 'unknown' : f.code, detail: f === undefined ? '' : f.detail });
+          }
+        },
+      },
+      {
         path: '/dsh-session-delete/archive-all',
         handler: async (req, res) => {
           const body = await readJsonBody(req);
@@ -321,18 +482,12 @@ export default {
             return;
           }
           const archivedSet = new Set(deps.registry.archivedSessionIds);
-          let count = 0;
-          const failed = [];
+          const report = { archived: [], alreadyArchived: [], missing: [], failed: [] };
           for (const id of [...w.sessionIds]) {
             if (archivedSet.has(id)) continue;
-            try {
-              await deps.registry.archiveSession(id);
-              count += 1;
-            } catch {
-              failed.push(id);
-            }
+            await archiveOne(deps, id, report);
           }
-          sendJson(res, 200, { ok: true, archived: count, failed });
+          sendJson(res, 200, { ok: true, archived: report.archived.length, failed: report.failed });
         },
       },
       {
@@ -387,11 +542,18 @@ export default {
           });
         },
       },
+      {
+        path: '/dsh-session-delete/list-archived',
+        handler: async (req, res) => {
+          const data = await listArchived(deps);
+          sendJson(res, 200, { ok: true, ...data });
+        },
+      },
     ];
 
     for (const r of routes) {
       ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: r.path, handler: r.handler }));
     }
-    log('host ready: POST /dsh-session-delete/{delete,delete-all,archive-all,restore,restore-all}');
+    log('host ready: POST /dsh-session-delete/{archive,archive-all,delete,delete-all,restore,restore-all,list-archived}');
   },
 };
