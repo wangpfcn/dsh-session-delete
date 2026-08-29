@@ -52,11 +52,17 @@ window.__ModuleLoader__.load({
 			var DICT = {
 				zh: {
 					deleteSession: "删除会话", archiveAll: "归档全部会话", deleteAll: "删除全部会话",
+					restoreArchived: "恢复归档会话", restoreAllArchived: "恢复全部已归档会话",
 					delTitle: "删除会话",
 					delBody: function (t) { return "将永久删除会话“" + t + "”的全部本地记录（含日志文件），不可恢复。"; },
 					archTitle: "归档全部会话",
 					archBody: function (l, n) { return "将归档工作区“" + l + "”下未归档的 " + n + " 个会话。归档的会话不再显示，但记录保留。"; },
 					archBody0: function (l) { return "将归档工作区“" + l + "”下全部未归档的会话。归档的会话不再显示，但记录保留。"; },
+					restoreTitle: "恢复归档会话",
+					restoreBody: function (l, n) { return "将恢复工作区“" + l + "”下 " + n + " 个已归档会话到原工作区。如果原工作区已删除，将按会话项目目录自动重建。"; },
+					restoreBody0: function (l) { return "将恢复工作区“" + l + "”下全部已归档会话到原工作区。如果原工作区已删除，将按会话项目目录自动重建。"; },
+					restoreAllTitle: "恢复全部已归档会话",
+					restoreAllBody: function (n) { return "将恢复全部 " + n + " 个已归档会话到各自原工作区。如果原工作区已删除，将自动按会话项目目录重建工作区。"; },
 					delAllTitle: "删除全部会话",
 					delAllBody: function (l, n) { return "将永久删除工作区“" + l + "”下全部 " + n + " 个会话（含已归档）的本地记录，不可恢复。正在运行的会话将被跳过。"; },
 					delAllBody0: function (l) { return "将永久删除工作区“" + l + "”下全部会话（含已归档）的本地记录，不可恢复。正在运行的会话将被跳过。"; },
@@ -68,15 +74,22 @@ window.__ModuleLoader__.load({
 					errNetwork: "请求失败（服务不可达）。",
 					errUnknown: "操作失败。",
 					archResult: function (n, f) { return "已归档 " + n + " 个会话。" + (f > 0 ? "失败 " + f + " 个。" : ""); },
+					restoreResult: function (n, f) { return "已恢复 " + n + " 个会话。" + (f > 0 ? "失败 " + f + " 个。" : ""); },
 					delAllResult: function (d, lv, f) { return "已删除 " + d + " 个" + (lv > 0 ? "，跳过运行中 " + lv + " 个" : "") + (f > 0 ? "，失败 " + f + " 个" : "") + "。"; }
 				},
 				en: {
 					deleteSession: "Delete Session", archiveAll: "Archive All Sessions", deleteAll: "Delete All Sessions",
+					restoreArchived: "Restore Archived Sessions", restoreAllArchived: "Restore All Archived Sessions",
 					delTitle: "Delete session",
 					delBody: function (t) { return "Permanently delete all local records (including the log file) of session “" + t + "”. This cannot be undone."; },
 					archTitle: "Archive all sessions",
 					archBody: function (l, n) { return "Archive " + n + " unarchived sessions in workspace “" + l + "”. Archived sessions are hidden but kept."; },
 					archBody0: function (l) { return "Archive all unarchived sessions in workspace “" + l + "”. Archived sessions are hidden but kept."; },
+					restoreTitle: "Restore Archived Sessions",
+					restoreBody: function (l, n) { return "Restore " + n + " archived sessions in workspace “" + l + "” to their original workspace. If the original workspace was deleted, it will be recreated from each session's project directory."; },
+					restoreBody0: function (l) { return "Restore all archived sessions in workspace “" + l + "” to their original workspace. If the original workspace was deleted, it will be recreated from each session's project directory."; },
+					restoreAllTitle: "Restore All Archived Sessions",
+					restoreAllBody: function (n) { return "Restore all " + n + " archived sessions to their original workspaces. Deleted workspace registrations will be recreated from each session's project directory."; },
 					delAllTitle: "Delete all sessions",
 					delAllBody: function (l, n) { return "Permanently delete all " + n + " sessions (archived included) in workspace “" + l + "”. Running sessions are skipped. This cannot be undone."; },
 					delAllBody0: function (l) { return "Permanently delete all sessions (archived included) in workspace “" + l + "”. Running sessions are skipped. This cannot be undone."; },
@@ -88,6 +101,7 @@ window.__ModuleLoader__.load({
 					errNetwork: "Request failed (service unreachable).",
 					errUnknown: "Operation failed.",
 					archResult: function (n, f) { return "Archived " + n + " session(s)." + (f > 0 ? " Failed: " + f + "." : ""); },
+					restoreResult: function (n, f) { return "Restored " + n + " session(s)." + (f > 0 ? " Failed: " + f + "." : ""); },
 					delAllResult: function (d, lv, f) { return "Deleted " + d + "." + (lv > 0 ? " Skipped running: " + lv + "." : "") + (f > 0 ? " Failed: " + f + "." : ""); }
 				}
 			};
@@ -95,7 +109,8 @@ window.__ModuleLoader__.load({
 
 			var ICONS = {
 				trash: "M2.5 4.2h11M6.3 2h3.4M4.2 4.2l.6 8.6c0 .7.6 1.2 1.2 1.2h4c.7 0 1.2-.5 1.2-1.2l.6-8.6M6.5 7v4.2M9.5 7v4.2",
-				archive: "M2.2 4.3h11.6M3.2 4.3v7.7c0 .9.7 1.6 1.6 1.6h6.4c.9 0 1.6-.7 1.6-1.6V4.3M6.4 7.8h3.2M2.2 4.3l.9-2.1h9.8l.9 2.1"
+				archive: "M2.2 4.3h11.6M3.2 4.3v7.7c0 .9.7 1.6 1.6 1.6h6.4c.9 0 1.6-.7 1.6-1.6V4.3M6.4 7.8h3.2M2.2 4.3l.9-2.1h9.8l.9 2.1",
+				restore: "M3.5 8.2a5 5 0 1 1 1.6 3.6M3.5 12.5v-3.2h3.2"
 			};
 
 			var pendingRow = null;
@@ -244,11 +259,23 @@ window.__ModuleLoader__.load({
 						closeOpenMenu();
 						confirmDeleteSession(row);
 					});
+					addItem(viewport, wraps[0], null, L.restoreAllArchived, ICONS.restore, false, function () {
+						closeOpenMenu();
+						confirmRestoreAll();
+					});
 				} else {
 					addItem(viewport, wraps[0], dangerTemplate, L.archiveAll, ICONS.archive, false, function () {
 						closeOpenMenu();
 						confirmArchiveAll(row);
 					});
+					var c = workspaceCounts(row.workspaceId);
+					var archivedCount = c === null ? 0 : (c.total - c.unarchived);
+					if (archivedCount > 0) {
+						addItem(viewport, wraps[0], null, L.restoreArchived, ICONS.restore, false, function () {
+							closeOpenMenu();
+							confirmRestoreWorkspace(row, archivedCount);
+						});
+					}
 					addItem(viewport, wraps[0], dangerTemplate, L.deleteAll, ICONS.trash, true, function () {
 						closeOpenMenu();
 						confirmDeleteAll(row);
@@ -409,6 +436,46 @@ window.__ModuleLoader__.load({
 						var res = await callApi("/dsh-session-delete/delete-all", { workspaceId: row.workspaceId });
 						if (res === null || res === undefined || !res.ok) return errorText(res);
 						return { done: L.delAllResult(res.deleted, res.live, (res.failed || []).length) };
+					}
+				});
+			}
+
+			function confirmRestoreWorkspace(row, count) {
+				openConfirm({
+					title: L.restoreTitle,
+					body: count === 0 ? L.restoreBody0(row.label) : L.restoreBody(row.label, count),
+					confirm: L.restoreArchived,
+					danger: false,
+					run: async function () {
+						var res = await callApi("/dsh-session-delete/restore-all", { workspaceId: row.workspaceId });
+						if (res === null || res === undefined || !res.ok) return errorText(res);
+						return { done: L.restoreResult(res.restored || 0, (res.failed || []).length) };
+					}
+				});
+			}
+
+			function globalArchivedCount() {
+				try {
+					var ws = ctx.get("workspaces");
+					if (ws === undefined || ws.list === undefined || typeof ws.list.getSnapshot !== "function") return 0;
+					var snap = ws.list.getSnapshot();
+					return Array.isArray(snap.archivedSessionIds) ? snap.archivedSessionIds.length : 0;
+				} catch (e) {
+					return 0;
+				}
+			}
+
+			function confirmRestoreAll() {
+				var count = globalArchivedCount();
+				openConfirm({
+					title: L.restoreAllTitle,
+					body: L.restoreAllBody(count),
+					confirm: L.restoreAllArchived,
+					danger: false,
+					run: async function () {
+						var res = await callApi("/dsh-session-delete/restore-all", {});
+						if (res === null || res === undefined || !res.ok) return errorText(res);
+						return { done: L.restoreResult(res.restored || 0, (res.failed || []).length) };
 					}
 				});
 			}

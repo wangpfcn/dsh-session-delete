@@ -20,7 +20,9 @@ DSH（DeepSeek Harness）工作区侧栏增强插件：补上官方缺失的**�
 | 入口 | 菜单项 | 行为 |
 |---|---|---|
 | 会话行 `…` 菜单 | **删除会话** | 永久删除该会话的全部本地记录（`~/.dsh/sessions/<项目目录>/<会话目录>/`，含日志文件），不可恢复 |
+| 会话行 `…` 菜单 | **恢复全部已归档会话** | 把所有已归档会话恢复到各自原工作区；原工作区已删除时自动按会话项目目录重建 |
 | 目录行 `…` 菜单 | **归档全部会话** | 一键归档该工作区下所有未归档会话（记录保留，仅隐藏） |
+| 目录行 `…` 菜单 | **恢复归档会话** | 恢复该工作区下已归档会话到原工作区 |
 | 目录行 `…` 菜单 | **删除全部会话** | 批量删除该工作区全部会话（含已归档） |
 
 ### 安全设计
@@ -57,7 +59,7 @@ pnpm add dsh-session-delete --registry https://registry.npmjs.org
 
 ### 工作原理
 
-- **Host 半**（`index.js`）：注册 `POST /dsh-session-delete/{delete,delete-all,archive-all}` 同源路由；删除经 `ctx.shell` 在按调用沙箱策略下执行（POSIX `rm` / Windows `Remove-Item` 自动分派，路径单引号转义防注入）
+- **Host 半**（`index.js`）：注册 `POST /dsh-session-delete/{delete,delete-all,archive-all,restore,restore-all}` 同源路由；删除经 `ctx.shell` 在按调用沙箱策略下执行（POSIX `rm` / Windows `Remove-Item` 自动分派，路径单引号转义防注入）；恢复会从归档集合移除会话，并按会话头 cwd 放回原工作区或重建工作区
 - **Client 半**（`client.js`，`dsh.client` web bundle）：点击捕获 + React fiber 读取行数据；MutationObserver 在菜单挂载后克隆现有菜单项 DOM 注入新命令（样式/主题自动一致），操作经同源 `fetch` 调 Host 路由
 
 > 注：浏览器半通过 DOM 增强注入菜单（官方未开放该菜单的扩展 Slot）。DSH 大版本升级若调整侧栏结构，插件可能需要跟进——菜单未注入时功能静默缺失，不会有其他影响。
@@ -72,7 +74,8 @@ pnpm add dsh-session-delete --registry https://registry.npmjs.org
 A DSH (DeepSeek Harness) sidebar enhancement plugin: adds the missing **session deletion** capability plus directory-level bulk operations.
 
 - Session row menu → **Delete Session**: permanently removes the session's local records (log directory included)
-- Workspace row menu → **Archive All Sessions** / **Delete All Sessions**
+- Session row menu → **Restore All Archived Sessions**: restores every archived session to its original workspace; if a workspace registration was deleted, it is recreated from the session's project directory
+- Workspace row menu → **Archive All Sessions** / **Restore Archived Sessions** / **Delete All Sessions**
 
 Safety: danger-styled confirmation dialog; live/opened sessions are always skipped; removal runs in a per-call sandbox (`workspace-write` scoped to the session's project directory); files are removed before any bookkeeping so a failure never leaves a half-deleted state.
 

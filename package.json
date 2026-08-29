@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-delete",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH sidebar session deletion & bulk archive: adds delete-session to session row menus and archive-all/delete-all to workspace row menus",
   "type": "module",
   "main": "index.js",
