@@ -17,8 +17,8 @@
  *
  * 依赖服务（inject）：webServer、shell、sessionPersistence、workspaceRegistry、sessions。
  */
-import { realpathSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync, dirname } from 'node:fs'
-import { basename, join } from 'node:path'
+import { realpathSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 
 const MODULE = '[dsh-session-delete]';
