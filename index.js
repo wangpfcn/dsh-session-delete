@@ -135,10 +135,32 @@ function removeBackup(id) {
 
 /* ---------------- 会话/工作区查找 ---------------- */
 
+/**
+ * 从 `sessionPersistence.list()` 的一项里取出 Session header。
+ *
+ * DSH 0.1.7-rc.2 起 `list()` 返回 `SessionPersistenceSnapshot`，即
+ * `{ header, revision, eventCount?, sizeBytes? }`，会话 id 与 cwd 都在 `header` 里；
+ * 0.1.0-rc.6 及更早返回的是扁平的 header 本身。两种都认，否则在新版 DSH 上
+ * 每一个会话都会因 `id` 取不到而落到 missing 分支——删除、归档、恢复全部失效。
+ *
+ * @param snapshot - `list()` 返回的一项
+ * @returns 该项的 header，或 undefined（结构无法识别时）
+ */
+function headerOf(snapshot) {
+  if (snapshot === null || snapshot === undefined) return undefined;
+  if (snapshot.header !== null && typeof snapshot.header === 'object') return snapshot.header;
+  return typeof snapshot.id === 'string' ? snapshot : undefined;
+}
+
 async function findHeader(deps, id) {
   try {
-    const headers = await deps.persistence.list();
-    return Array.isArray(headers) ? headers.find((h) => h && h.id === id) : undefined;
+    const snapshots = await deps.persistence.list();
+    if (!Array.isArray(snapshots)) return undefined;
+    for (const snapshot of snapshots) {
+      const header = headerOf(snapshot);
+      if (header !== undefined && header.id === id) return header;
+    }
+    return undefined;
   } catch (e) {
     log('list headers failed', e);
     return undefined;
@@ -180,15 +202,16 @@ function backupWorkspace(deps, id, header) {
 async function sessionIdsForWorkspace(deps, w) {
   const ids = new Set([...w.sessionIds].map(String));
   const target = canonicalPath(w.path);
-  let headers;
+  let snapshots;
   try {
-    headers = await deps.persistence.list();
+    snapshots = await deps.persistence.list();
   } catch (e) {
     log('list headers failed', e);
-    headers = [];
+    snapshots = [];
   }
-  for (const h of Array.isArray(headers) ? headers : []) {
-    if (h === null || h === undefined) continue;
+  for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
+    const h = headerOf(snapshot);
+    if (h === undefined) continue;
     if (typeof h.id !== 'string' || h.id === '' || typeof h.cwd !== 'string' || h.cwd === '') continue;
     if (canonicalPath(h.cwd) === target) ids.add(h.id);
   }
@@ -378,9 +401,12 @@ async function restoreMany(deps, ids, report) {
 async function listArchived(deps) {
   const reg = deps.registry;
   const ids = [...reg.archivedSessionIds].map(String);
-  const headers = await deps.persistence.list();
+  const snapshots = await deps.persistence.list();
   const byId = new Map();
-  for (const h of Array.isArray(headers) ? headers : []) byId.set(String(h.id), h);
+  for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
+    const h = headerOf(snapshot);
+    if (h !== undefined && typeof h.id === 'string') byId.set(h.id, h);
+  }
   const backups = loadBackups();
 
   let titles = new Map();
