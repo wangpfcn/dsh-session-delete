@@ -172,6 +172,30 @@ function backupWorkspace(deps, id, header) {
 /* ---------------- 删除 ---------------- */
 
 /**
+ * 某个工作区应覆盖的全部会话：工作区账目里的，加上日志落在同一项目目录下
+ * 但没有登记进任何工作区的会话（子代理会话、被 detach 的会话）。
+ * 只走 `w.sessionIds` 会漏掉后者——它们不在侧栏，任何 GUI 删除都碰不到，
+ * 而 DSH 持久层没有删除接口，这些日志会一直留在磁盘上。
+ */
+async function sessionIdsForWorkspace(deps, w) {
+  const ids = new Set([...w.sessionIds].map(String));
+  const target = canonicalPath(w.path);
+  let headers;
+  try {
+    headers = await deps.persistence.list();
+  } catch (e) {
+    log('list headers failed', e);
+    headers = [];
+  }
+  for (const h of Array.isArray(headers) ? headers : []) {
+    if (h === null || h === undefined) continue;
+    if (typeof h.id !== 'string' || h.id === '' || typeof h.cwd !== 'string' || h.cwd === '') continue;
+    if (canonicalPath(h.cwd) === target) ids.add(h.id);
+  }
+  return [...ids];
+}
+
+/**
  * 删除一个会话：live 拒绝 → 定位日志 → 沙箱 rm 目录 → 归档 + detach 簿记。
  * 结果写入 report（deleted/live/missing/failed 四类）。
  */
@@ -439,9 +463,11 @@ export default {
             return;
           }
           const report = { deleted: [], live: [], missing: [], failed: [] };
-          for (const id of [...w.sessionIds]) await deleteOne(deps, id, report);
+          const ids = await sessionIdsForWorkspace(deps, w);
+          for (const id of ids) await deleteOne(deps, id, report);
           sendJson(res, 200, {
             ok: true,
+            scanned: ids.length,
             deleted: report.deleted.length,
             live: report.live.length,
             missing: report.missing.length,
