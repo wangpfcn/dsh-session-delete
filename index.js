@@ -38,6 +38,12 @@ function dirname(p) {
   return i <= 0 ? '' : p.slice(0, i);
 }
 
+/** 路径规范化：去掉尾部分隔符；win32 上路径不区分大小写。 */
+function normalizePath(p) {
+  const trimmed = String(p).replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
+}
+
 /** POSIX 单引号转义：bash 双引号内特殊字符（$ ` \ !）在此全部保持字面量。 */
 function shSingle(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
@@ -74,6 +80,30 @@ function sendJson(res, status, value) {
     'content-length': Buffer.byteLength(body),
   });
   res.end(body);
+}
+
+/**
+ * 某个工作区应覆盖的全部会话：工作区账目里的，加上日志落在同一项目目录下
+ * 但没有登记进任何工作区的会话（子代理会话、被 detach 的会话）。
+ * 只走 `w.sessionIds` 会漏掉后者——它们不在侧栏，任何 GUI 删除都碰不到，
+ * 而 DSH 持久层没有删除接口，这些日志会一直留在磁盘上。
+ */
+async function sessionIdsForWorkspace(deps, w) {
+  const ids = new Set([...w.sessionIds].map(String));
+  const target = normalizePath(w.path);
+  let headers;
+  try {
+    headers = await deps.persistence.list();
+  } catch (e) {
+    log('list headers failed', e);
+    headers = [];
+  }
+  for (const h of Array.isArray(headers) ? headers : []) {
+    if (h === null || h === undefined) continue;
+    if (typeof h.id !== 'string' || h.id === '' || typeof h.cwd !== 'string' || h.cwd === '') continue;
+    if (normalizePath(h.cwd) === target) ids.add(h.id);
+  }
+  return [...ids];
 }
 
 /**
@@ -195,9 +225,11 @@ export default {
             return;
           }
           const report = { deleted: [], live: [], missing: [], failed: [] };
-          for (const id of [...w.sessionIds]) await deleteOne(deps, id, report);
+          const ids = await sessionIdsForWorkspace(deps, w);
+          for (const id of ids) await deleteOne(deps, id, report);
           sendJson(res, 200, {
             ok: true,
+            scanned: ids.length,
             deleted: report.deleted.length,
             live: report.live.length,
             missing: report.missing.length,
