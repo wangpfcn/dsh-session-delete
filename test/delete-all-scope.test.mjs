@@ -12,8 +12,9 @@ const OTHER = 'E:\\fake\\other'
  *
  * `shape` 覆盖 DSH 两代 list() 结构：`flat` 是 0.1.0-rc.6 的扁平 header，
  * `snapshot` 是 0.1.7-rc.2 的 `{ header, revision }` 快照。
+ * `shellApi` 覆盖两代 shell 接口：`run` 直接给结果，`execute` 返回需经 `result()` 的句柄。
  */
-function harness({ live = new Set(), listThrows = false, shape = 'flat' } = {}) {
+function harness({ live = new Set(), listThrows = false, shape = 'flat', shellApi = 'run' } = {}) {
   const routes = new Map()
   const removed = []
   const archived = []
@@ -28,6 +29,23 @@ function harness({ live = new Set(), listThrows = false, shape = 'flat' } = {}) 
     },
   }
   const wrap = (header) => (shape === 'snapshot' ? { header, revision: 'r1' } : header)
+  const runResult = () => ({ exitCode: 0, stderr: { text: '' } })
+  const shell =
+    shellApi === 'execute'
+      ? {
+          resolve: (request) => request,
+          async execute(spec) {
+            removed.push(spec.command)
+            return { result: async () => runResult() }
+          },
+        }
+      : {
+          resolve: (request) => request,
+          async run(spec) {
+            removed.push(spec.command)
+            return runResult()
+          },
+        }
   const ctx = {
     effect(fn) {
       return fn()
@@ -39,13 +57,7 @@ function harness({ live = new Set(), listThrows = false, shape = 'flat' } = {}) 
         return () => {}
       },
     },
-    shell: {
-      resolve: (request) => request,
-      async run(spec) {
-        removed.push(spec.command)
-        return { exitCode: 0, stderr: '' }
-      },
-    },
+    shell,
     sessionPersistence: {
       async list() {
         if (listThrows) throw new Error('boom')
@@ -118,6 +130,19 @@ for (const shape of ['flat', 'snapshot']) {
     assert.equal(payload.ok, true)
     assert.equal(removed.length, 1)
     assert.ok(removed[0].includes('subagent-1'))
+  })
+}
+
+// DSH 0.1.7-rc.2 把 shell 的 run() 改名为 execute()，且结果要经 result() 取。
+// 少了这个兼容层，deps.shell.run 不存在 → TypeError → 删除返回 500。
+for (const shellApi of ['run', 'execute']) {
+  test(`删除在 shell 接口=${shellApi} 下都能跑通（DSH 0.1.7 用 execute+result）`, async () => {
+    const { routes, removed } = harness({ shape: 'snapshot', shellApi })
+    const { status, payload } = await post(routes, '/dsh-session-delete/delete', { sessionId: 'subagent-1' })
+
+    assert.equal(status, 200)
+    assert.equal(payload.ok, true, `shell=${shellApi} 时删除应成功，实际 ${JSON.stringify(payload)}`)
+    assert.equal(removed.length, 1)
   })
 }
 

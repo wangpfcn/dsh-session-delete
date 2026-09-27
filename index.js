@@ -61,6 +61,28 @@ function removalCommand(dir, isWin) {
   return 'rm -rf -- ' + shSingle(dir);
 }
 
+/**
+ * 跑一条命令并取回前台结果。
+ *
+ * DSH 0.1.7-rc.2 起 `ctx.shell` 的执行入口由 `run(spec)` 改名为 `execute(spec)`，
+ * 且返回的是 `ShellExecution` 句柄——真正的 `ShellRunResult`（`exitCode` /
+ * `sandbox.denied` / `stderr`）要再经 `result()` 才能拿到；0.1.0-rc.6 则是
+ * `run(spec)` 直接给结果。两种都支持，否则新版上 `deps.shell.run` 不存在，
+ * 抛 TypeError 被记成 `run-error`，删除一律返回 500。
+ *
+ * @param deps - 插件依赖集合（含 `shell`）
+ * @param request - `ShellExecRequest`
+ * @returns `ShellRunResult` 或旧版等价结果
+ */
+async function runShell(deps, request) {
+  const spec = await deps.shell.resolve(request);
+  if (typeof deps.shell.execute === 'function') {
+    const execution = await deps.shell.execute(spec);
+    return typeof execution?.result === 'function' ? await execution.result() : execution;
+  }
+  return deps.shell.run(spec);
+}
+
 /** 收集并解析 JSON 请求体；空体返回 {}，非法 JSON 返回 null。 */
 async function readJsonBody(req) {
   const chunks = [];
@@ -172,19 +194,18 @@ async function deleteOne(deps, id, report) {
   /* 1) 先删文件：受限沙箱（root=该项目目录）。失败则无任何状态变化。 */
   let res;
   try {
-    const spec = await deps.shell.resolve({
+    res = await runShell(deps, {
       command: removalCommand(dir, loc.path.indexOf('\\') !== -1),
       timeoutMs: 30_000,
       sandboxPolicy: { mode: 'workspace-write', workspaceRoot: parent },
     });
-    res = await deps.shell.run(spec);
   } catch (e) {
     report.failed.push({ id, code: 'run-error', detail: textOf(e && e.message) });
     return;
   }
-  const denied = res.sandbox !== undefined && res.sandbox.denied === true;
-  if (res.exitCode !== 0) {
-    report.failed.push({ id, code: denied ? 'sandbox-denied' : 'rm-failed', detail: textOf(res.stderr) });
+  const denied = res?.sandbox !== undefined && res.sandbox.denied === true;
+  if (res?.exitCode !== 0) {
+    report.failed.push({ id, code: denied ? 'sandbox-denied' : 'rm-failed', detail: textOf(res?.stderr) });
     return;
   }
   /* 2) 文件已删，做簿记：归档隐藏 + 工作区账目 detach。失败仅影响显示。 */
