@@ -88,18 +88,36 @@ function sendJson(res, status, value) {
  * 只走 `w.sessionIds` 会漏掉后者——它们不在侧栏，任何 GUI 删除都碰不到，
  * 而 DSH 持久层没有删除接口，这些日志会一直留在磁盘上。
  */
+/**
+ * 从 `sessionPersistence.list()` 的一项里取出 Session header。
+ *
+ * DSH 0.1.7-rc.2 起 `list()` 返回 `SessionPersistenceSnapshot`，即
+ * `{ header, revision, eventCount?, sizeBytes? }`，会话 id 与 cwd 都在 `header` 里；
+ * 0.1.0-rc.6 及更早返回的是扁平的 header 本身。两种都认，否则在新版 DSH 上
+ * 每一个会话都会因 `id` 取不到而落到 missing 分支——删除会整体失效。
+ *
+ * @param snapshot - `list()` 返回的一项
+ * @returns 该项的 header，或 undefined（结构无法识别时）
+ */
+function headerOf(snapshot) {
+  if (snapshot === null || snapshot === undefined) return undefined;
+  if (snapshot.header !== null && typeof snapshot.header === 'object') return snapshot.header;
+  return typeof snapshot.id === 'string' ? snapshot : undefined;
+}
+
 async function sessionIdsForWorkspace(deps, w) {
   const ids = new Set([...w.sessionIds].map(String));
   const target = normalizePath(w.path);
-  let headers;
+  let snapshots;
   try {
-    headers = await deps.persistence.list();
+    snapshots = await deps.persistence.list();
   } catch (e) {
     log('list headers failed', e);
-    headers = [];
+    snapshots = [];
   }
-  for (const h of Array.isArray(headers) ? headers : []) {
-    if (h === null || h === undefined) continue;
+  for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
+    const h = headerOf(snapshot);
+    if (h === undefined) continue;
     if (typeof h.id !== 'string' || h.id === '' || typeof h.cwd !== 'string' || h.cwd === '') continue;
     if (normalizePath(h.cwd) === target) ids.add(h.id);
   }
@@ -117,8 +135,16 @@ async function deleteOne(deps, id, report) {
   }
   let header;
   try {
-    const headers = await deps.persistence.list();
-    header = Array.isArray(headers) ? headers.find((h) => h && h.id === id) : undefined;
+    const snapshots = await deps.persistence.list();
+    if (Array.isArray(snapshots)) {
+      for (const snapshot of snapshots) {
+        const h = headerOf(snapshot);
+        if (h !== undefined && h.id === id) {
+          header = h;
+          break;
+        }
+      }
+    }
   } catch (e) {
     report.failed.push({ id, code: 'list-failed', detail: textOf(e && e.message) });
     return;
